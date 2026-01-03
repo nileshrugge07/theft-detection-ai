@@ -1,0 +1,6 @@
+flask>=2.2
+ultralytics>=8.0
+tensorflow>=2.16
+opencv-python>=4.8
+numpy>=1.23
+pillow>=9.5

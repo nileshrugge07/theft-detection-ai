@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Models (DO NOT UPLOAD)
+
+emotion_model_saved/
+weights/
+
+# OS
+.DS_Store
+Thumbs.db
