@@ -4,3 +4,4 @@ tensorflow>=2.16
 opencv-python>=4.8
 numpy>=1.23
 pillow>=9.5
+gunicorn
