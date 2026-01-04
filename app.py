@@ -1,20 +1,30 @@
-from flask import Flask, render_template, Response, jsonify, request
+import os
 import cv2
+import time
+import threading
 import numpy as np
 import tensorflow as tf
 from ultralytics import YOLO
-import threading
-import time
+from flask import Flask, render_template, Response, jsonify, request
+
+# ======================
+# ENV CHECK
+# ======================
+IS_RENDER = os.environ.get("RENDER", "false") == "true"
 
 app = Flask(__name__)
 
 # ======================
 # LOAD MODELS
 # ======================
+print("Loading models...")
+
 weapon_model = YOLO("weapon_yolo.pt")
 emotion_model = tf.keras.models.load_model("emotion_model.keras")
 
 EMOTIONS = ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
+
+print("Models loaded successfully")
 
 # ======================
 # GLOBAL STATE
@@ -23,7 +33,7 @@ stats = {
     "suspicious_count": 0,
     "details": [],
     "current_mood": "unknown",
-    "alert_level": "NORMAL"  # NORMAL | WARNING | ALERT
+    "alert_level": "NORMAL"
 }
 
 camera_running = False
@@ -32,7 +42,7 @@ lock = threading.Lock()
 last_mood_time = 0
 
 # ======================
-# EMOTION FUNCTION
+# EMOTION PREDICTION
 # ======================
 def predict_emotion(face):
     gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
@@ -43,7 +53,7 @@ def predict_emotion(face):
     return EMOTIONS[int(np.argmax(pred))]
 
 # ======================
-# CENTER FACE (FOR TESTING MOOD)
+# CENTER FACE (MOOD CHECK)
 # ======================
 def get_monitor_face(frame):
     h, w, _ = frame.shape
@@ -66,7 +76,7 @@ def generate_frames():
         if not success:
             continue
 
-        # -------- CONTINUOUS MOOD CHECK (every 2 sec) --------
+        # ---- Mood detection every 2 sec ----
         if time.time() - last_mood_time > 2:
             try:
                 face = get_monitor_face(frame)
@@ -79,7 +89,7 @@ def generate_frames():
 
             last_mood_time = time.time()
 
-        # -------- YOLO DETECTION --------
+        # ---- YOLO detection ----
         detections = weapon_model(frame, conf=0.4)[0]
         suspicious = []
         alert = "NORMAL"
@@ -123,12 +133,14 @@ def generate_frames():
 # ======================
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return "AI Surveillance System Running"
 
 @app.route("/video_feed")
 def video_feed():
-    return Response(generate_frames(),
-                    mimetype="multipart/x-mixed-replace; boundary=frame")
+    return Response(
+        generate_frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
+    )
 
 @app.route("/stats")
 def get_stats():
@@ -138,23 +150,26 @@ def get_stats():
 @app.route("/start_camera", methods=["POST"])
 def start_camera():
     global cap, camera_running
+
+    if IS_RENDER:
+        return jsonify({
+            "status": "error",
+            "message": "Camera not available on cloud server"
+        })
+
     if not camera_running:
         cap = cv2.VideoCapture(0)
         camera_running = True
+
     return jsonify({"status": "started"})
 
 @app.route("/stop_camera", methods=["POST"])
 def stop_camera():
     global cap, camera_running
     camera_running = False
+
     if cap:
         cap.release()
         cap = None
-    return jsonify({"status": "stopped"})
 
-# ======================
-# START
-# ======================
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0",debug=True, threaded=True,port=port)
+    return jsonify({"status": "stopped"})
