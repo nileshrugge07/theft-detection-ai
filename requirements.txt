@@ -1,9 +1,9 @@
-flask>=2.2
+flask
 gunicorn
 
-ultralytics>=8.0
-tensorflow==2.15.0
+ultralytics
+tensorflow
 
-opencv-python-headless>=4.8
-numpy>=1.23
-pillow>=9.5
+opencv-python-headless
+numpy
+pillow
