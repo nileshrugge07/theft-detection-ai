@@ -5,19 +5,22 @@ import threading
 import numpy as np
 import tensorflow as tf
 from ultralytics import YOLO
-from flask import Flask, render_template, Response, jsonify, request
+from flask import Flask, Response, jsonify
 
 # ======================
 # ENV CHECK
 # ======================
 IS_RENDER = os.environ.get("RENDER", "false") == "true"
 
+# ======================
+# FLASK APP
+# ======================
 app = Flask(__name__)
 
 # ======================
 # LOAD MODELS
 # ======================
-print("Loading models...")
+print("Loading AI models...")
 
 weapon_model = YOLO("weapon_yolo.pt")
 emotion_model = tf.keras.models.load_model("emotion_model.keras")
@@ -45,21 +48,25 @@ last_mood_time = 0
 # EMOTION PREDICTION
 # ======================
 def predict_emotion(face):
+    if face.size == 0:
+        return "unknown"
+
     gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
     gray = cv2.resize(gray, (48, 48))
     gray = gray / 255.0
     gray = gray.reshape(1, 48, 48, 1)
+
     pred = emotion_model.predict(gray, verbose=0)
     return EMOTIONS[int(np.argmax(pred))]
 
 # ======================
-# CENTER FACE (MOOD CHECK)
+# CENTER FACE REGION
 # ======================
 def get_monitor_face(frame):
     h, w, _ = frame.shape
     cx, cy = w // 2, h // 3
     size = min(h, w) // 4
-    return frame[cy-size:cy+size, cx-size:cx+size]
+    return frame[max(0, cy-size):cy+size, max(0, cx-size):cx+size]
 
 # ======================
 # VIDEO STREAM
@@ -76,7 +83,7 @@ def generate_frames():
         if not success:
             continue
 
-        # ---- Mood detection every 2 sec ----
+        # ---- Mood detection (every 2 sec) ----
         if time.time() - last_mood_time > 2:
             try:
                 face = get_monitor_face(frame)
@@ -89,7 +96,7 @@ def generate_frames():
 
             last_mood_time = time.time()
 
-        # ---- YOLO detection ----
+        # ---- Weapon detection ----
         detections = weapon_model(frame, conf=0.4)[0]
         suspicious = []
         alert = "NORMAL"
@@ -98,10 +105,7 @@ def generate_frames():
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             crop = frame[y1:y2, x1:x2]
 
-            emotion = "unknown"
-            if crop.size > 0:
-                emotion = predict_emotion(crop)
-
+            emotion = predict_emotion(crop)
             danger = emotion in ["angry", "fear"]
 
             if danger:
@@ -111,8 +115,15 @@ def generate_frames():
 
             color = (0, 0, 255) if danger else (0, 255, 0)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, emotion.upper(), (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            cv2.putText(
+                frame,
+                emotion.upper(),
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                color,
+                2
+            )
 
             suspicious.append({
                 "emotion": emotion,
@@ -125,8 +136,12 @@ def generate_frames():
             stats["alert_level"] = alert
 
         _, buffer = cv2.imencode(".jpg", frame)
-        yield (b"--frame\r\n"
-               b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n"
+            + buffer.tobytes()
+            + b"\r\n"
+        )
 
 # ======================
 # ROUTES
@@ -166,10 +181,17 @@ def start_camera():
 @app.route("/stop_camera", methods=["POST"])
 def stop_camera():
     global cap, camera_running
-    camera_running = False
 
+    camera_running = False
     if cap:
         cap.release()
         cap = None
 
     return jsonify({"status": "stopped"})
+
+# ======================
+# REQUIRED FOR RENDER
+# ======================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
